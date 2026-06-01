@@ -28,3 +28,12 @@ The system integrates tenant onboarding, utility billing, financial ledger accou
 * System Architecture
 
 This project was developed to explore the design and implementation of enterprise-style management software while solving practical challenges faced by landlords, hostel operators, and property managers.
+
+### Tech Stack Used
+* Python 3.x
+* CustomTkinter
+* SQLite3
+* Tkinter
+* Object-Oriented Programming
+* File System Management
+* Desktop Application Development
