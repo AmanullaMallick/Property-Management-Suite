@@ -37,3 +37,20 @@ This project was developed to explore the design and implementation of enterpris
 * Object-Oriented Programming
 * File System Management
 * Desktop Application Development
+
+### Architecture
+GUI Layer (CustomTkinter)
+        │
+        ▼
+Business Logic Layer
+        │
+        ▼
+Database Manager
+        │
+        ▼
+SQLite Database
+        │
+        ├── Tenants
+        ├── Financial Ledger
+        ├── Utility Logs
+        └── Rate Matrix
