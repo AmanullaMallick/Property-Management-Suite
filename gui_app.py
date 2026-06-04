@@ -64,7 +64,7 @@ class PropManagerApp(ctk.CTk):
         self.archive_frame = ctk.CTkFrame(self, corner_radius=0, fg_color="transparent")
 
         self._build_dashboard()
-        
+        self._build_tenants()
         self._build_onboarding()
         self._build_utilities()
         self._build_archive()
@@ -83,7 +83,7 @@ class PropManagerApp(ctk.CTk):
     def show_tenants(self):
         self._clear_workspace()
         self.tenants_frame.grid(row=0, column=1, sticky="nsew", padx=20, pady=20)
-        self._build_tenants()
+        self._refresh_tenant_entries()
 
     def show_onboarding(self):
         self._clear_workspace()
@@ -174,7 +174,7 @@ class PropManagerApp(ctk.CTk):
 
         ctk.CTkLabel(scroll, text="Tenant Updation", font=ctk.CTkFont(size=20, weight="bold")).grid(row=0, column=0, columnspan=2, padx=10, pady=15, sticky="w")
 
-        self.onb_entries = {}
+        self.tenant_entries = {}
         fields = [
             ("unit_id", "Unit ID"),
             ("tenant_name", "Full Legal Name"),
@@ -201,7 +201,7 @@ class PropManagerApp(ctk.CTk):
             ctk.CTkLabel(scroll, text=label).grid(row=row, column=col*2, padx=5, pady=4, sticky="e")
             entry = ctk.CTkEntry(scroll, width=200)
             entry.grid(row=row, column=col*2+1, padx=5, pady=4, sticky="w")
-            self.onb_entries[key] = entry
+            self.tenant_entries[key] = entry
             if key == "onboarding_date":
                 entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
 
@@ -257,7 +257,7 @@ class PropManagerApp(ctk.CTk):
     def _prompt_admin_unlock_all(self):
         """Prompts for a code; if correct, unlocks every single input field on the form."""
         # checks if user has entered the unit id
-        if not self.onb_entries["unit_id"].get():  # If no Unit ID is entered, prompt them to enter it first
+        if not self.tenant_entries["unit_id"].get():  # If no Unit ID is entered, prompt them to enter it first
             messagebox.showinfo("Error: Info Required","Please enter the Unit ID first in the form before unlocking.",) # Just show an OK dialog
             return
         # Open the CustomTkinter input dialog popup
@@ -275,7 +275,7 @@ class PropManagerApp(ctk.CTk):
             print("Access granted. Unlocking all fields for editing...")
             
             # 1. Loop through and unlock all entry fields dynamically
-            for key, entry in self.onb_entries.items():
+            for key, entry in self.tenant_entries.items():
                 entry.configure(state="normal")
             
             # 2. Unlock your combo menu dropdowns and extra inputs
@@ -291,7 +291,7 @@ class PropManagerApp(ctk.CTk):
     
     def _check_and_update_pdf_button(self):
         """Checks if a PDF exists for the current Unit ID and transforms the button."""
-        unit_id = self.onb_entries["unit_id"].get().strip()
+        unit_id = self.tenant_entries["unit_id"].get().strip()
         
         if not unit_id:
             self.pdf_status.configure(text="Enter Unit ID to check PDF status", text_color="gray")
@@ -326,7 +326,7 @@ class PropManagerApp(ctk.CTk):
     
     def _open_pdf(self):
         """Safely fetches and opens the stored PDF string for a specific unit."""
-        unit_id = self.onb_entries["unit_id"].get()
+        unit_id = self.tenant_entries["unit_id"].get()
         if not unit_id:
             print("Please enter a Unit ID first.")
             return
@@ -361,14 +361,14 @@ class PropManagerApp(ctk.CTk):
 
     def _update_tenant_submit(self):
         """Gathers edited fields from the UI and applies changes to the database."""
-        unit_id = self.onb_entries["unit_id"].get().strip()
+        unit_id = self.tenant_entries["unit_id"].get().strip()
         if not unit_id:
             print("Unit ID required to perform an update.")
             return
 
         # Build a kwargs dictionary out of your text entry widgets
         update_payload = {}
-        for key, entry in self.onb_entries.items():
+        for key, entry in self.tenant_entries.items():
             if key != "unit_id":
                 update_payload[key] = entry.get()
 
@@ -379,17 +379,17 @@ class PropManagerApp(ctk.CTk):
         # Execute your safe kwargs update method from database.py
         self.db.update_tenant(unit_id, **update_payload)
         if self.agreement_path.get():
-            self.db.attach_document_to_tenant(unit_id, self.agreement_path.get())   # Safely attach the PDF path to the tenant's documents in the database
+            self.db.attach_rental_agreement(unit_id, self.agreement_path.get())   # Safely attach the PDF path to the tenant's documents in the database
             self.agreement_path.set("")  # Clear the staged path after upload
         print(f"Successfully updated profiles details for Unit {unit_id}.")
         
         # Refresh any linked tables or global dropdown states across screens
-        self._refresh_tenant_dropdowns()
+        self._refresh_tenant_entries()
         self.show_dashboard() # returns user to dashboard after update
 
     def _load_tenant_to_ui(self):
         """Pulls existing data from the database and fills the entry boxes."""
-        unit_id = self.onb_entries["unit_id"].get()#.strip()
+        unit_id = self.tenant_entries["unit_id"].get()#.strip()
         self.agreement_path.set("")  # Clear any previously staged PDF path when loading new tenant data
         if not unit_id:
             print("Please enter a valid Unit ID to fetch data.")
@@ -403,7 +403,7 @@ class PropManagerApp(ctk.CTk):
             return
 
         # 1. Autofill standard text entries dynamically
-        for key, entry in self.onb_entries.items():
+        for key, entry in self.tenant_entries.items():
             if key != "unit_id":  # Don't overwrite the ID they just typed
                 entry.delete(0, "end") # Clear whatever text was there before
                 val = tenant_data.get(key)
@@ -423,16 +423,15 @@ class PropManagerApp(ctk.CTk):
         
         print(f"Data successfully loaded for Unit {unit_id}!")
     
-    def _refresh_tenant_dropdowns(self):
-        tenants = self.db.get_all_active_tenants()
-        units = [t["unit_id"] for t in tenants]
-        if units:
-            self.util_unit_combo.configure(values=units)
-            self.util_unit_combo.set(units[0])
-            self._load_ledger_view(units[0])
-        else:
-            self.util_unit_combo.configure(values=["No Active Units"])
-            self.util_unit_combo.set("No Active Units")
+    def _refresh_tenant_entries(self):
+        try:
+            for e in self.tenant_entries.values():
+                e.delete(0, "end")
+            self.tenant_entries["onboarding_date"].insert(0, datetime.now().strftime("%Y-%m-%d"))
+            self.pdf_status.configure(text="No PDF attached", text_color="gray")
+            self.agreement_path.set("")
+        except Exception as err:
+            messagebox.showerror("Error", str(err))
 
     # -----------------------------------------------------------------
     # ONBOARDING (Complete SRS fields)
