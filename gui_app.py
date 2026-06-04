@@ -248,7 +248,7 @@ class PropManagerApp(ctk.CTk):
         # Master Unlock Button
         self.unlock_btn = ctk.CTkButton(
             scroll, 
-            text="🔒 Unlock Form for Editing (Requires Code)", 
+            text= "Unlock Form for Editing (Requires Code)", 
             fg_color="#4b5563", # Neutral slate gray
             command=self._prompt_admin_unlock_all
         )
