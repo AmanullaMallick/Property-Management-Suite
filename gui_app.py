@@ -103,8 +103,7 @@ class PropManagerApp(ctk.CTk):
     # DASHBOARD
     # -----------------------------------------------------------------
     def _build_dashboard(self):
-        self.dashboard_frame.grid_columnconfigure((0,1), weight=1)
-        # Allow the row containing the textbox to expand
+        self.dashboard_frame.grid_columnconfigure(0, weight=1)
         self.dashboard_frame.grid_rowconfigure(4, weight=1)
 
         ctk.CTkLabel(self.dashboard_frame, text="System Overview", font=ctk.CTkFont(size=24, weight="bold")).grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="w")
@@ -117,47 +116,88 @@ class PropManagerApp(ctk.CTk):
 
         # Search bar with live filtering
         self.search_var = ctk.StringVar()
-        self.search_var.trace_add("write", self._on_search_change) # Calls function on every keystroke
+        self.search_var.trace_add("write", self._on_search_change)
         
         self.search_bar = ctk.CTkEntry(self.dashboard_frame, placeholder_text="Search units...", textvariable=self.search_var)
         self.search_bar.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
-        
 
         ctk.CTkLabel(self.dashboard_frame, text="Active Units", font=ctk.CTkFont(size=14, weight="bold")).grid(row=2, column=0, padx=10, pady=5, sticky="w")
-        self.dash_text = ctk.CTkTextbox(self.dashboard_frame, height=360, activate_scrollbars=True)
-        self.dash_text.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
-        
-        # Initial data load
-        self.update_textbox_display(self.all_tenants)
+
+        # Create scrollable frame for table
+        self.table_scroll = ctk.CTkScrollableFrame(self.dashboard_frame)
+        self.table_scroll.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        self.table_scroll.grid_columnconfigure((0, 1, 2, 3), weight=1)
+
+        self.table_rows = []
+        self.update_table_display(self.all_tenants)
 
     def _on_search_change(self, *args):
         query = self.search_var.get().strip().lower()
         if not query:
-            self.update_textbox_display(self.all_tenants)
+            self.update_table_display(self.all_tenants)
             return
         filtered = [u for u in self.all_tenants if query in u['unit_id'].lower() or query in u['tenant_name'].lower()]
-        self.update_textbox_display(filtered)
-    
-    def update_textbox_display(self, units):
-        self.dash_text.configure(state="normal")
-        self.dash_text.delete("1.0", tk.END)
-        for u in units:
+        self.update_table_display(filtered)
+
+    def update_table_display(self, units):
+        for row_widgets in self.table_rows:
+            for widget in row_widgets:
+                widget.destroy()
+        self.table_rows = []
+
+        headers = ["Unit ID", "Tenant Name", "Base Rent", "Current Balance"]
+        for col, header in enumerate(headers):
+            header_label = ctk.CTkLabel(
+                self.table_scroll, 
+                text=header, 
+                font=ctk.CTkFont(weight="bold", size=11),
+                fg_color="#2c3e50",
+                text_color="white",
+                anchor="w",
+                padx=10,
+                pady=8
+            )
+            header_label.grid(row=0, column=col, sticky="ew", padx=2, pady=2)
+
+        for idx, u in enumerate(units):
             bal = self.db.get_current_balance(u['unit_id'])
-            self.dash_text.insert(tk.END, f"Unit {u['unit_id']:<6} | {u['tenant_name']:<25} | Balance: ₹{bal:,.2f}\n")
-        self.dash_text.configure(state="disabled")
+            row_color = "#1a1a1a" if idx % 2 == 0 else "#242424"
+            
+            row_widgets = []
+            
+            unit_label = ctk.CTkLabel(self.table_scroll, text=u['unit_id'], fg_color=row_color, anchor="w", padx=10)
+            unit_label.grid(row=idx+1, column=0, sticky="ew", padx=2, pady=2)
+            row_widgets.append(unit_label)
+            
+            tenant_label = ctk.CTkLabel(self.table_scroll, text=u['tenant_name'], fg_color=row_color, anchor="w", padx=10)
+            tenant_label.grid(row=idx+1, column=1, sticky="ew", padx=2, pady=2)
+            row_widgets.append(tenant_label)
+            
+            rent_label = ctk.CTkLabel(self.table_scroll, text=f"₹{u.get('base_rent', 0):,.0f}", fg_color=row_color, anchor="w", padx=10)
+            rent_label.grid(row=idx+1, column=2, sticky="ew", padx=2, pady=2)
+            row_widgets.append(rent_label)
+            
+            balance_color = "#2d5016" if bal >= 0 else "#5c1a1a"
+            balance_label = ctk.CTkLabel(
+                self.table_scroll, 
+                text=f"₹{bal:,.2f}", 
+                fg_color=balance_color, 
+                anchor="w", 
+                padx=10,
+                text_color="white" if bal < 0 else "#90EE90"
+            )
+            balance_label.grid(row=idx+1, column=3, sticky="ew", padx=2, pady=2)
+            row_widgets.append(balance_label)
+            
+            self.table_rows.append(row_widgets)
 
     def _refresh_dashboard(self):
         tenants = self.db.get_all_active_tenants()
+        self.all_tenants = tenants
         self.card_active.configure(text=f"Active Managed Units: {len(tenants)}")
         metrics = self.db.get_utility_arbitrage_metrics()
         self.card_arb.configure(text=f"Arbitrage Net Yield:\nElectricity: ₹{metrics['Electricity']:,.2f} | Water: ₹{metrics['Water']:,.2f}")
-
-        self.dash_text.configure(state="normal")
-        self.dash_text.delete("1.0", tk.END)
-        for t in tenants:
-            bal = self.db.get_current_balance(t['unit_id'])
-            self.dash_text.insert(tk.END, f"Unit {t['unit_id']:<6} | {t['tenant_name']:<25} | Balance: ₹{bal:,.2f}\n")
-        self.dash_text.configure(state="disabled")
+        self.update_table_display(tenants)
 
     #-----------------------------------------------------------------
     # TENANTS (List + Search) - Placeholder for future expansion
@@ -567,38 +607,51 @@ class PropManagerApp(ctk.CTk):
         self.photo_label.grid(row=0, column=2, padx=5, pady=5)
         ctk.CTkButton(ops, text="Attach Photo", command=self._select_meter_photo).grid(row=1, column=2, padx=5, pady=5, sticky="ew")
 
-        ctk.CTkButton(ops, text="Log Reading & Post", command=self._log_utility_reading).grid(row=1, column=3, padx=5, pady=5, sticky="ew")
+        ctk.CTkButton(ops, text="View Stored Photos", command=self._open_meter_photo_viewer).grid(row=1, column=3, padx=5, pady=5, sticky="ew")
 
-        ctk.CTkLabel(ops, text="Period Start (YYYY-MM-DD)").grid(row=2, column=0, padx=5, pady=5)
+        ctk.CTkButton(ops, text="Log Reading & Post", command=self._log_utility_reading).grid(row=2, column=2, columnspan=2, padx=5, pady=5, sticky="ew")
+
+        ctk.CTkLabel(ops, text="Period Start (YYYY-MM-DD)").grid(row=3, column=0, padx=5, pady=5)
         self.period_start = ctk.CTkEntry(ops)
-        self.period_start.grid(row=3, column=0, padx=5, pady=5, sticky="ew")
+        self.period_start.grid(row=4, column=0, padx=5, pady=5, sticky="ew")
         self.period_start.insert(0, datetime.now().replace(day=1).strftime("%Y-%m-%d"))
 
-        ctk.CTkLabel(ops, text="Period End").grid(row=2, column=1, padx=5, pady=5)
+        ctk.CTkLabel(ops, text="Period End").grid(row=3, column=1, padx=5, pady=5)
         self.period_end = ctk.CTkEntry(ops)
-        self.period_end.grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+        self.period_end.grid(row=4, column=1, padx=5, pady=5, sticky="ew")
         last_day = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
         self.period_end.insert(0, last_day.strftime("%Y-%m-%d"))
 
-        ctk.CTkButton(ops, text="Generate Statement", command=self._generate_invoice).grid(row=3, column=2, columnspan=2, padx=5, pady=5, sticky="ew")
+        ctk.CTkButton(ops, text="Generate Statement", command=self._generate_invoice).grid(row=4, column=2, padx=5, pady=5, sticky="ew")
+        ctk.CTkButton(ops, text="Export as PDF", command=self._export_statement_pdf, fg_color="#d97706").grid(row=4, column=3, padx=5, pady=5, sticky="ew")
 
         # --- Rate update button (new) ---
         self.btn_update_rates = ctk.CTkButton(self.util_frame, text="Modify Global Pricing Matrix", command=self._open_rate_dialog)
         self.btn_update_rates.grid(row=3, column=0, columnspan=1, padx=10, pady=5, sticky="ew")
-        self.btn_post_fixed_water_charge = ctk.CTkButton(self.util_frame, text="Post Fixed Water Charge", command=lambda: (unit := self.util_unit_combo.get()) and [ self.db.post_fixed_water_charge(unit, datetime.now().replace(day=1).strftime("%Y-%m-%d")), self._display_ledger(unit) ])# self._load_ledger_view(self.util_unit_combo.get())])
+        self.btn_post_fixed_water_charge = ctk.CTkButton(self.util_frame, text="Post Fixed Water Charge", command=lambda: (unit := self.util_unit_combo.get()) and [ self.db.post_fixed_water_charge(unit, datetime.now().replace(day=1).strftime("%Y-%m-%d")), self._display_ledger(unit) ])
         self.btn_post_fixed_water_charge.grid(row=3, column=1, columnspan=1, padx=10, pady=5, sticky="ew")
 
+        monthly_frame = ctk.CTkFrame(self.util_frame, fg_color="transparent")
+        monthly_frame.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        monthly_frame.grid_columnconfigure((0, 1), weight=1)
+        
+        ctk.CTkButton(monthly_frame, text="Post Monthly Rent (All Tenants)", command=self._post_monthly_rent_all, fg_color="#2b733e").grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        self.last_rent_status = ctk.CTkLabel(monthly_frame, text="", font=ctk.CTkFont(size=9), text_color="gray")
+        self.last_rent_status.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+
         manual_frame = ctk.CTkFrame(self.util_frame, fg_color="transparent")
-        manual_frame.grid(row=4, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
+        manual_frame.grid(row=5, column=0, columnspan=2, padx=10, pady=5, sticky="ew")
         manual_frame.grid_columnconfigure((0,1,2), weight=1)
 
         ctk.CTkButton(manual_frame, text="Post Payment", command=self._post_payment).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
         ctk.CTkButton(manual_frame, text="Post Charge", command=self._post_charge).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
         ctk.CTkButton(manual_frame, text="Run Late Fees", command=self._apply_late_fees).grid(row=0, column=2, padx=5, pady=5, sticky="ew")
 
-        # ledger goes below the manual frame
-        self.ledger_box = ctk.CTkTextbox(self.util_frame, height=300, font=ctk.CTkFont(family="Courier", size=11))
-        self.ledger_box.grid(row=5, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        # ledger table goes below the manual frame
+        self.ledger_table = ctk.CTkScrollableFrame(self.util_frame)
+        self.ledger_table.grid(row=6, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        self.ledger_table.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        self.ledger_table_rows = []
 
     def _refresh_tenant_dropdowns(self):
         tenants = self.db.get_all_active_tenants()
@@ -626,19 +679,147 @@ class PropManagerApp(ctk.CTk):
 
     def _display_ledger(self, unit_id):
         ledger = self.db.get_ledger_for_tenant(unit_id)
-        self.ledger_box.configure(state="normal")
-        self.ledger_box.delete("1.0", tk.END)
-        self.ledger_box.insert(tk.END, f"{'Date':<12} {'Type':<20} {'Description':<35} {'Amount':>10} {'Balance':>12}\n")
-        self.ledger_box.insert(tk.END, "-" * 90 + "\n")
-        for tx in ledger:
-            self.ledger_box.insert(tk.END, f"{tx['transaction_date']:<12} {tx['transaction_type']:<20} {tx['description'][:33]:<35} ₹{tx['amount']:>9,.2f} ₹{tx['running_balance']:>11,.2f}\n")
-        self.ledger_box.configure(state="disabled")
+        
+        for row_widgets in getattr(self, 'ledger_table_rows', []):
+            for widget in row_widgets:
+                widget.destroy()
+        self.ledger_table_rows = []
+        
+        headers = ["Date", "Type", "Description", "Amount", "Balance"]
+        for col, header in enumerate(headers):
+            header_label = ctk.CTkLabel(
+                self.ledger_table, 
+                text=header, 
+                font=ctk.CTkFont(weight="bold", size=10),
+                fg_color="#2c3e50",
+                text_color="white",
+                anchor="w",
+                padx=8,
+                pady=6
+            )
+            header_label.grid(row=0, column=col, sticky="ew", padx=1, pady=1)
+        
+        for idx, tx in enumerate(ledger):
+            row_color = "#1a1a1a" if idx % 2 == 0 else "#242424"
+            row_widgets = []
+            
+            date_label = ctk.CTkLabel(self.ledger_table, text=tx['transaction_date'], fg_color=row_color, anchor="w", padx=8)
+            date_label.grid(row=idx+1, column=0, sticky="ew", padx=1, pady=1)
+            row_widgets.append(date_label)
+            
+            type_label = ctk.CTkLabel(self.ledger_table, text=tx['transaction_type'], fg_color=row_color, anchor="w", padx=8, font=ctk.CTkFont(size=9))
+            type_label.grid(row=idx+1, column=1, sticky="ew", padx=1, pady=1)
+            row_widgets.append(type_label)
+            
+            desc_text = tx['description'][:30]
+            desc_label = ctk.CTkLabel(self.ledger_table, text=desc_text, fg_color=row_color, anchor="w", padx=8, font=ctk.CTkFont(size=9))
+            desc_label.grid(row=idx+1, column=2, sticky="ew", padx=1, pady=1)
+            row_widgets.append(desc_label)
+            
+            amount_color = "#2d5016" if tx['amount'] < 0 else "#5c3d1a"
+            amount_label = ctk.CTkLabel(
+                self.ledger_table, 
+                text=f"₹{tx['amount']:,.2f}", 
+                fg_color=amount_color, 
+                anchor="w", 
+                padx=8,
+                text_color="white" if tx['amount'] < 0 else "#F4A460",
+                font=ctk.CTkFont(size=9)
+            )
+            amount_label.grid(row=idx+1, column=3, sticky="ew", padx=1, pady=1)
+            row_widgets.append(amount_label)
+            
+            balance_color = "#2d5016" if tx['running_balance'] >= 0 else "#5c1a1a"
+            balance_label = ctk.CTkLabel(
+                self.ledger_table, 
+                text=f"₹{tx['running_balance']:,.2f}", 
+                fg_color=balance_color, 
+                anchor="w", 
+                padx=8,
+                text_color="white" if tx['running_balance'] < 0 else "#90EE90",
+                font=ctk.CTkFont(size=9, weight="bold")
+            )
+            balance_label.grid(row=idx+1, column=4, sticky="ew", padx=1, pady=1)
+            row_widgets.append(balance_label)
+            
+            self.ledger_table_rows.append(row_widgets)
 
     def _select_meter_photo(self):
         path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.jpeg *.png")])
         if path:
             self.meter_photo_path.set(path)
             self.photo_label.configure(text=f"Photo: {os.path.basename(path)}", text_color="#4CAF50")
+
+    def _open_meter_photo_viewer(self):
+        unit = self.util_unit_combo.get()
+        if unit == "No Active Units":
+            messagebox.showinfo("Info", "No unit selected")
+            return
+        
+        photos = self.db.get_meter_photos(unit)
+        if not photos:
+            messagebox.showinfo("Info", f"No stored meter photos for unit {unit}")
+            return
+        
+        viewer = ctk.CTkToplevel(self)
+        viewer.title(f"Meter Photo Viewer - Unit {unit}")
+        viewer.geometry("600x700")
+        viewer.resizable(False, False)
+        
+        viewer_state = {"current_index": 0, "photos": photos}
+        
+        info_frame = ctk.CTkFrame(viewer)
+        info_frame.pack(padx=10, pady=10, fill="x")
+        
+        title_label = ctk.CTkLabel(info_frame, text="", font=ctk.CTkFont(size=12, weight="bold"))
+        title_label.pack(anchor="w")
+        
+        details_label = ctk.CTkLabel(info_frame, text="", font=ctk.CTkFont(size=10), justify="left")
+        details_label.pack(anchor="w", pady=5)
+        
+        image_frame = ctk.CTkFrame(viewer, fg_color="#1e1e1e")
+        image_frame.pack(padx=10, pady=10, fill="both", expand=True)
+        
+        image_label = ctk.CTkLabel(image_frame, text="Loading image...", fg_color="#1e1e1e")
+        image_label.pack(padx=10, pady=10, fill="both", expand=True)
+        
+        def load_photo(idx):
+            if 0 <= idx < len(photos):
+                viewer_state["current_index"] = idx
+                photo = photos[idx]
+                
+                idx_display = f"Photo {idx + 1} of {len(photos)}"
+                title_label.configure(text=idx_display)
+                
+                details = f"Utility: {photo['utility_type']}\nPeriod: {photo['billing_period']}\n"
+                details += f"Readings: {photo['previous_reading']} → {photo['current_reading']} (Δ {photo['units_consumed']})\n"
+                details += f"Captured: {photo['reading_capture_date']}"
+                details_label.configure(text=details)
+                
+                if photo['meter_image_blob']:
+                    try:
+                        from PIL import Image
+                        import io
+                        
+                        img = Image.open(io.BytesIO(photo['meter_image_blob']))
+                        img.thumbnail((550, 500), Image.Resampling.LANCZOS)
+                        
+                        photo_image = ctk.CTkImage(light_image=img, size=(img.width, img.height))
+                        image_label.configure(image=photo_image, text="")
+                        image_label.image = photo_image
+                    except Exception as e:
+                        image_label.configure(text=f"Error loading image:\n{str(e)}")
+        
+        button_frame = ctk.CTkFrame(viewer)
+        button_frame.pack(padx=10, pady=10, fill="x")
+        button_frame.grid_columnconfigure((0, 1, 2), weight=1)
+        
+        ctk.CTkButton(button_frame, text="← Previous", command=lambda: load_photo(viewer_state["current_index"] - 1)).grid(row=0, column=0, padx=5, sticky="ew")
+        counter_label = ctk.CTkLabel(button_frame, text="")
+        counter_label.grid(row=0, column=1, padx=5)
+        ctk.CTkButton(button_frame, text="Next →", command=lambda: load_photo(viewer_state["current_index"] + 1)).grid(row=0, column=2, padx=5, sticky="ew")
+        
+        load_photo(0)
 
     def _log_utility_reading(self):
         unit = self.util_unit_combo.get()
@@ -671,10 +852,34 @@ class PropManagerApp(ctk.CTk):
         end = self.period_end.get().strip()
         try:
             stmt = self.invoice_engine.generate_statement(unit, start, end)
-            self.ledger_box.configure(state="normal")
-            self.ledger_box.delete("1.0", tk.END)
-            self.ledger_box.insert(tk.END, stmt)
-            self.ledger_box.configure(state="disabled")
+            messagebox.showinfo("Statement", stmt)
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    def _export_statement_pdf(self):
+        unit = self.util_unit_combo.get()
+        if unit == "No Active Units":
+            messagebox.showinfo("Info", "No unit selected")
+            return
+        
+        start = self.period_start.get().strip()
+        end = self.period_end.get().strip()
+        
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            filetypes=[("PDF files", "*.pdf")],
+            initialfile=f"Statement_{unit}_{start}_to_{end}.pdf"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            success = self.invoice_engine.generate_statement_pdf(unit, start, end, file_path)
+            if success:
+                messagebox.showinfo("Success", f"PDF exported to:\n{file_path}")
+            else:
+                messagebox.showerror("Error", "Failed to generate PDF")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -695,6 +900,33 @@ class PropManagerApp(ctk.CTk):
         messagebox.showinfo("Late Fees", f"{count} late fee(s) posted.")
         self._display_ledger(unit)
         self.show_dashboard()
+
+    def _post_monthly_rent_all(self):
+        effective_date = datetime.now().strftime("%Y-%m-%d")
+        year_month = effective_date[:7]
+        
+        if not messagebox.askyesno("Confirm", f"Post monthly rent for all active tenants?\nDate: {effective_date}"):
+            return
+        
+        try:
+            stats = self.db.post_rent_for_all_tenants(effective_date)
+            
+            msg = f"Rent posting completed:\n\n"
+            msg += f"Total Tenants: {stats['total']}\n"
+            msg += f"✓ Posted: {stats['posted']}\n"
+            msg += f"⊘ Already Posted: {stats['skipped']}\n"
+            if stats['errors'] > 0:
+                msg += f"✗ Errors: {stats['errors']}"
+            
+            messagebox.showinfo("Monthly Rent Auto-Posting", msg)
+            self.last_rent_status.configure(
+                text=f"Last posted: {year_month} ({stats['posted']} units)",
+                text_color="#90EE90" if stats['posted'] > 0 else "gray"
+            )
+            self._display_ledger(self.util_unit_combo.get() if self.util_unit_combo.get() != "No Active Units" else "")
+            self.show_dashboard()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
 
     def _amount_dialog(self, title, callback):
         dialog = ctk.CTkInputDialog(text="Enter amount:", title=title)

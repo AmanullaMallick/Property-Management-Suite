@@ -231,6 +231,20 @@ class DatabaseManager:
             ).fetchone()
             return dict(row) if row else None
 
+    def get_meter_photos(self, unit_id: str) -> List[Dict]:
+        """Returns meter photos for a unit with reading details."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """SELECT log_id, utility_type, billing_period, 
+                          previous_reading, current_reading, units_consumed,
+                          reading_capture_date, meter_image_blob
+                   FROM Utility_Logs
+                   WHERE unit_id = ? AND meter_image_blob IS NOT NULL
+                   ORDER BY reading_capture_date DESC""",
+                (unit_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     # ------------------------------------------------------------------
     # Utility Reading Logging (Atomic with Financial Posting)
     # ------------------------------------------------------------------
@@ -317,6 +331,50 @@ class DatabaseManager:
             self._post_ledger_entry(conn, unit_id, effective_date,
                                     charge_type, description, amount)
             conn.commit()
+
+    def check_rent_posted_for_month(self, unit_id: str, year_month: str) -> bool:
+        """Check if rent has been posted for a specific month (YYYY-MM)."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                """SELECT COUNT(*) as cnt FROM Financial_Ledger
+                   WHERE unit_id = ? AND transaction_type = 'Rent Charge'
+                   AND strftime('%Y-%m', transaction_date) = ?""",
+                (unit_id, year_month)
+            ).fetchone()
+            return row['cnt'] > 0
+
+    def post_monthly_rent(self, unit_id: str, effective_date: str) -> bool:
+        """Post monthly rent for a unit if not already posted for this month."""
+        tenant = self.get_tenant(unit_id)
+        if not tenant:
+            return False
+        
+        year_month = effective_date[:7]
+        if self.check_rent_posted_for_month(unit_id, year_month):
+            return False
+        
+        self.post_charge(
+            unit_id, 'Rent Charge', tenant['base_rent'],
+            effective_date, f"Monthly Rent ({year_month})"
+        )
+        return True
+
+    def post_rent_for_all_tenants(self, effective_date: str) -> dict:
+        """Post monthly rent for all active tenants. Returns summary stats."""
+        tenants = self.get_all_active_tenants()
+        stats = {"total": len(tenants), "posted": 0, "skipped": 0, "errors": 0}
+        
+        for tenant in tenants:
+            try:
+                if self.post_monthly_rent(tenant['unit_id'], effective_date):
+                    stats["posted"] += 1
+                else:
+                    stats["skipped"] += 1
+            except Exception as e:
+                stats["errors"] += 1
+                print(f"Error posting rent for {tenant['unit_id']}: {e}")
+        
+        return stats
 
     def get_ledger_for_tenant(self, unit_id: str) -> List[Dict]:
         """Returns transactional chronological lists."""

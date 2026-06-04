@@ -5,6 +5,12 @@ Integrates seamlessly with thread-safe DatabaseManager connection pools.
 
 from typing import List
 from datetime import datetime
+try:
+    from reportlab.lib import pagesizes
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import inch
+except ImportError:
+    canvas = None
 
 class InvoiceEngine:
     def __init__(self, db_manager):
@@ -125,3 +131,32 @@ class InvoiceEngine:
         if amount < 0:
             return f"-₹{abs(amount):,.2f}"
         return f"₹{amount:,.2f}"
+
+    def generate_statement_pdf(self, unit_id: str, period_start: str, period_end: str, output_path: str) -> bool:
+        """Generate a PDF statement and save it to output_path. Returns True on success."""
+        if canvas is None:
+            raise ImportError("reportlab is required for PDF generation. Install with: pip install reportlab")
+        
+        try:
+            statement_text = self.generate_statement(unit_id, period_start, period_end)
+            
+            c = canvas.Canvas(output_path, pagesize=pagesizes.letter)
+            width, height = pagesizes.letter
+            
+            margin = 0.5 * inch
+            y_position = height - margin
+            line_height = 14
+            
+            for line in statement_text.split('\n'):
+                if y_position < margin:
+                    c.showPage()
+                    y_position = height - margin
+                
+                c.drawString(margin, y_position, line)
+                y_position -= line_height
+            
+            c.save()
+            return True
+        except Exception as e:
+            print(f"Error generating PDF: {e}")
+            return False
