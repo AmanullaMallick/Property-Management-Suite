@@ -8,6 +8,7 @@ import subprocess
 from sys import platform
 import tkinter as tk
 from tkinter import filedialog, messagebox
+from tkinter.ttk import Treeview
 import customtkinter as ctk
 from datetime import datetime, timedelta
 
@@ -122,22 +123,62 @@ class PropManagerApp(ctk.CTk):
         self.search_bar = ctk.CTkEntry(self.dashboard_frame, placeholder_text="Search units...", textvariable=self.search_var)
         self.search_bar.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
         
+        headers = ctk.CTkFrame(self.dashboard_frame)
+        ctk.CTkLabel(headers, text='Unit ID', width=100, anchor="w").pack(side="left", padx=10)
+        ctk.CTkLabel(headers, text='Tenant Name', width=300, anchor="w").pack(side="left", padx=10)
+        ctk.CTkLabel(headers, text='Balance', width=150, anchor="e").pack(side="right", padx=10)
+        headers.grid(row=3, column=0, columnspan=2, padx=10, pady=2, sticky="ew")
 
+        self.table_frame = ctk.CTkScrollableFrame(self.dashboard_frame)
+        self.table_frame.grid(
+            row=4,
+            column=0,
+            columnspan=2,
+            padx=10,
+            pady=10,
+            sticky="nsew")
+
+        self.table_frame.grid_columnconfigure(0, weight=1)
+
+        '''self.table = Treeview(self.dashboard_frame, columns=("Unit ID", "Tenant Name", "Balance"), show="headings", height=40, style="Custom.Treeview")
+        self.table.heading("Unit ID", text="Unit ID")
+        self.table.heading("Tenant Name", text="Tenant Name")
+        self.table.heading("Balance", text="Balance")
+        self.table.grid(
+            row=3,
+            column=0,
+            columnspan=2,
+            padx=10,
+            pady=10,
+            sticky="nsew")
+        
         ctk.CTkLabel(self.dashboard_frame, text="Active Units", font=ctk.CTkFont(size=14, weight="bold")).grid(row=2, column=0, padx=10, pady=5, sticky="w")
         self.dash_text = ctk.CTkTextbox(self.dashboard_frame, height=360, activate_scrollbars=True)
         self.dash_text.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
+        '''
         
         # Initial data load
-        self.update_textbox_display(self.all_tenants)
+        self._update_table_display(self.all_tenants)
 
     def _on_search_change(self, *args):
         query = self.search_var.get().strip().lower()
         if not query:
-            self.update_textbox_display(self.all_tenants)
+            self._update_table_display(self.all_tenants)
             return
         filtered = [u for u in self.all_tenants if query in u['unit_id'].lower() or query in u['tenant_name'].lower()]
-        self.update_textbox_display(filtered)
+        self._update_table_display(filtered)
     
+    def _update_table_display(self, units):
+        for widget in self.table_frame.winfo_children():
+            widget.destroy()
+        for i, u in enumerate(units):
+            bal = self.db.get_current_balance(u['unit_id'])
+            row = ctk.CTkFrame(self.table_frame)
+            row.grid(row=i, column=0, sticky="ew", padx=5, pady=2)
+            ctk.CTkLabel(row, text=u['unit_id'], width=100, anchor="w").pack(side="left", padx=10)
+            ctk.CTkLabel(row, text=u['tenant_name'], width=300, anchor="w").pack(side="left", padx=10)
+            ctk.CTkLabel(row, text=f"₹{bal:,.2f}", width=150, anchor="e").pack(side="right", padx=10)
+
     def update_textbox_display(self, units):
         self.dash_text.configure(state="normal")
         self.dash_text.delete("1.0", tk.END)
@@ -152,12 +193,15 @@ class PropManagerApp(ctk.CTk):
         metrics = self.db.get_utility_arbitrage_metrics()
         self.card_arb.configure(text=f"Arbitrage Net Yield:\nElectricity: ₹{metrics['Electricity']:,.2f} | Water: ₹{metrics['Water']:,.2f}")
 
+        self._update_table_display(tenants)
+        ''' This is the old textbox method, now replaced by the Treeview table above. Keeping the code here in case we want to revert back or use it for a different section later.
         self.dash_text.configure(state="normal")
         self.dash_text.delete("1.0", tk.END)
         for t in tenants:
             bal = self.db.get_current_balance(t['unit_id'])
             self.dash_text.insert(tk.END, f"Unit {t['unit_id']:<6} | {t['tenant_name']:<25} | Balance: ₹{bal:,.2f}\n")
         self.dash_text.configure(state="disabled")
+        '''
 
     #-----------------------------------------------------------------
     # TENANTS (List + Search) - Placeholder for future expansion
@@ -237,13 +281,15 @@ class PropManagerApp(ctk.CTk):
         ).grid(row=row_after+3, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # --- MODIFIED: Adjusted Submit Button to route to your update pipeline ---
-        ctk.CTkButton(
+        self.update_btn = ctk.CTkButton(
             scroll, 
             text="Update Details", 
             fg_color="#2b733e", 
             height=45, 
-            command=self._update_tenant_submit
-        ).grid(row=row_after+3, column=2, columnspan=2, padx=10, pady=10, sticky="ew")
+            command=self._update_tenant_submit,
+            state="disabled"  # Initially disabled until they fetch data and unlock the form
+        )
+        self.update_btn.grid(row=row_after+3, column=2, columnspan=2, padx=10, pady=10, sticky="ew")
 
         # Master Unlock Button
         self.unlock_btn = ctk.CTkButton(
@@ -284,7 +330,8 @@ class PropManagerApp(ctk.CTk):
             self.brokerage_entry.configure(state="normal")
             
             # Optional UI feedback: change the status text color to show it's unlocked
-            self.unlock_btn.configure(text="🔓 Editing Enabled", text_color="#d97706")
+            self.unlock_btn.configure(text="Editing Enabled", text_color="#d97706")
+            self.update_btn.configure(state="normal")
         else:
             if entered_code is not None:
                 print("Incorrect code. Form remains locked.")
@@ -385,6 +432,7 @@ class PropManagerApp(ctk.CTk):
         
         # Refresh any linked tables or global dropdown states across screens
         self._refresh_tenant_entries()
+        self.update_btn.configure(state="disabled")
         self.show_dashboard() # returns user to dashboard after update
 
     def _load_tenant_to_ui(self):
@@ -426,6 +474,7 @@ class PropManagerApp(ctk.CTk):
     def _refresh_tenant_entries(self):
         try:
             for e in self.tenant_entries.values():
+                e.configure(state="normal")
                 e.delete(0, "end")
             self.tenant_entries["onboarding_date"].insert(0, datetime.now().strftime("%Y-%m-%d"))
             self.pdf_status.configure(text="No PDF attached", text_color="gray")
