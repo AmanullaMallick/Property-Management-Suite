@@ -8,7 +8,6 @@ import subprocess
 from sys import platform
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from tkinter.ttk import Treeview
 import customtkinter as ctk
 from datetime import datetime, timedelta
 
